@@ -1,0 +1,6 @@
+{
+  "name": "Lexis Studio",
+  "description": "HTML WYSIWYG editor and accessible dual-panel presenter for 8 English reading and use-of-language exercise formats.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
