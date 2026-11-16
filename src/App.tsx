@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Minus, Plus, SlidersHorizontal, MonitorPlay, PenLine } from 'lucide-react';
 import {
   AccessibilitySettings,
@@ -23,11 +23,16 @@ import {
   buildFolderStandaloneHtml,
   buildStandaloneHtml,
 } from './utils/htmlExporter';
-
-const STORAGE_EXERCISES_KEY = 'lexis_studio_exercises_v1';
-const STORAGE_FOLDERS_KEY = 'lexis_studio_folders_v1';
-const STORAGE_ACTIVE_ID_KEY = 'lexis_studio_active_id_v1';
-const STORAGE_A11Y_KEY = 'lexis_studio_a11y_v1';
+import {
+  WorkspaceSnapshot,
+  beaconServerSnapshot,
+  fetchServerSnapshot,
+  readIdbSnapshot,
+  readLocalSnapshot,
+  saveServerSnapshot,
+  writeIdbSnapshot,
+  writeLocalSnapshotSync,
+} from './utils/persistence';
 
 const DEFAULT_A11Y: AccessibilitySettings = {
   theme: 'paper-light',
@@ -37,56 +42,41 @@ const DEFAULT_A11Y: AccessibilitySettings = {
   splitRatio: 50,
 };
 
+const DEFAULT_SNAPSHOT: WorkspaceSnapshot = {
+  exercises: SAMPLE_EXERCISES,
+  folders: [],
+  collapsedFolderIds: [],
+  activeId: SAMPLE_EXERCISES[0].id,
+  a11y: DEFAULT_A11Y,
+  savedAt: 0,
+};
+
 type ExportTarget =
   | { kind: 'exercise'; exercise: Exercise }
   | { kind: 'folder'; folderName: string; exercises: Exercise[] };
 
 export default function App() {
-  const [exercises, setExercises] = useState<Exercise[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_EXERCISES_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {
-      // Fallback to seeded samples
-    }
-    return SAMPLE_EXERCISES;
-  });
+  const initialLocal = useRef(readLocalSnapshot(DEFAULT_SNAPSHOT));
+  const [exercises, setExercises] = useState<Exercise[]>(
+    initialLocal.current.snapshot.exercises
+  );
+  const [folders, setFolders] = useState<ExerciseFolder[]>(
+    initialLocal.current.snapshot.folders
+  );
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<string[]>(
+    initialLocal.current.snapshot.collapsedFolderIds
+  );
+  const [activeId, setActiveId] = useState<string>(
+    initialLocal.current.snapshot.activeId
+  );
+  const [a11y, setA11y] = useState<AccessibilitySettings>(
+    initialLocal.current.snapshot.a11y
+  );
 
-  const [folders, setFolders] = useState<ExerciseFolder[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_FOLDERS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // Ignore
-    }
-    return [];
-  });
-
-  const [activeId, setActiveId] = useState<string>(() => {
-    try {
-      const savedId = localStorage.getItem(STORAGE_ACTIVE_ID_KEY);
-      if (savedId) return savedId;
-    } catch {
-      // Ignore
-    }
-    return SAMPLE_EXERCISES[0].id;
-  });
-
-  const [a11y, setA11y] = useState<AccessibilitySettings>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_A11Y_KEY);
-      if (saved) return { ...DEFAULT_A11Y, ...JSON.parse(saved) };
-    } catch {
-      // Ignore
-    }
-    return DEFAULT_A11Y;
-  });
+  const savedAtRef = useRef<number>(initialLocal.current.snapshot.savedAt);
+  const hydratedRef = useRef<boolean>(false);
+  const latestSnapshotRef = useRef<WorkspaceSnapshot>(initialLocal.current.snapshot);
+  const dirtyRef = useRef<boolean>(false);
 
   const [mode, setMode] = useState<'edit' | 'present'>('edit');
   const [a11yOpen, setA11yOpen] = useState(false);
@@ -96,38 +86,104 @@ export default function App() {
   }>({ open: false, tab: 'library' });
   const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
 
-  // Persist exercises, folders, active selection & accessibility settings
+  // Hydrate from server & IndexedDB on initial load so changes always carry over
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_EXERCISES_KEY, JSON.stringify(exercises));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, [exercises]);
+    let cancelled = false;
+    (async () => {
+      const [serverSnap, idbSnap] = await Promise.all([
+        fetchServerSnapshot(),
+        readIdbSnapshot(),
+      ]);
+      if (cancelled || dirtyRef.current) {
+        hydratedRef.current = true;
+        return;
+      }
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_FOLDERS_KEY, JSON.stringify(folders));
-    } catch {
-      // Ignore
-    }
-  }, [folders]);
+      const candidates = [
+        initialLocal.current.hasUserSaved ? initialLocal.current.snapshot : null,
+        idbSnap,
+        serverSnap,
+      ].filter((c): c is WorkspaceSnapshot => c !== null);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_ACTIVE_ID_KEY, activeId);
-    } catch {
-      // Ignore
-    }
-  }, [activeId]);
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+        const newest = candidates[0];
+        if (newest.savedAt > savedAtRef.current || !initialLocal.current.hasUserSaved) {
+          savedAtRef.current = newest.savedAt || Date.now();
+          setExercises(newest.exercises);
+          setFolders(Array.isArray(newest.folders) ? newest.folders : []);
+          setCollapsedFolderIds(
+            Array.isArray(newest.collapsedFolderIds) ? newest.collapsedFolderIds : []
+          );
+          setActiveId(newest.activeId || newest.exercises[0].id);
+          setA11y({ ...DEFAULT_A11Y, ...(newest.a11y || {}) });
+          writeLocalSnapshotSync(newest);
+          writeIdbSnapshot(newest);
+        } else if (
+          initialLocal.current.hasUserSaved &&
+          (!serverSnap || (serverSnap.savedAt || 0) < savedAtRef.current)
+        ) {
+          saveServerSnapshot(initialLocal.current.snapshot);
+        }
+      }
+      hydratedRef.current = true;
+    })();
 
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persist synchronously to localStorage + IndexedDB + debounced server sync on every change
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_A11Y_KEY, JSON.stringify(a11y));
-    } catch {
-      // Ignore
+    const now = hydratedRef.current ? Date.now() : savedAtRef.current;
+    if (hydratedRef.current) {
+      savedAtRef.current = now;
+      dirtyRef.current = true;
     }
-  }, [a11y]);
+    const snapshot: WorkspaceSnapshot = {
+      exercises,
+      folders,
+      collapsedFolderIds,
+      activeId,
+      a11y,
+      savedAt: now,
+    };
+    latestSnapshotRef.current = snapshot;
+
+    if (!hydratedRef.current && !initialLocal.current.hasUserSaved) {
+      return;
+    }
+
+    writeLocalSnapshotSync(snapshot);
+    writeIdbSnapshot(snapshot);
+
+    const timer = window.setTimeout(() => {
+      saveServerSnapshot(snapshot);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [exercises, folders, collapsedFolderIds, activeId, a11y]);
+
+  // Flush immediately if user reloads or closes tab right after editing
+  useEffect(() => {
+    const flush = () => {
+      if (!dirtyRef.current && !initialLocal.current.hasUserSaved) return;
+      writeLocalSnapshotSync(latestSnapshotRef.current);
+      beaconServerSnapshot(latestSnapshotRef.current);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   const activeExercise =
     exercises.find((ex) => ex.id === activeId) || exercises[0];
@@ -175,13 +231,20 @@ export default function App() {
     '--reader-font-family': readerFontCss,
   } as React.CSSProperties;
 
+  const markDirty = () => {
+    hydratedRef.current = true;
+    dirtyRef.current = true;
+  };
+
   const handleUpdateExercise = (updated: Exercise) => {
+    markDirty();
     setExercises((prev) =>
       prev.map((ex) => (ex.id === updated.id ? updated : ex))
     );
   };
 
   const handleCreateExercise = (type: ExerciseType, folderId?: string) => {
+    markDirty();
     const created = createBlankExercise(type);
     if (folderId) {
       created.folderId = folderId;
@@ -192,6 +255,7 @@ export default function App() {
   };
 
   const handleDuplicateExercise = (id: string) => {
+    markDirty();
     const src = exercises.find((ex) => ex.id === id);
     if (!src) return;
     const copy: Exercise = {
@@ -206,6 +270,7 @@ export default function App() {
 
   const handleDeleteExercise = (id: string) => {
     if (exercises.length <= 1) return;
+    markDirty();
     setExercises((prev) => {
       const next = prev.filter((ex) => ex.id !== id);
       if (id === activeId && next[0]) {
@@ -216,6 +281,7 @@ export default function App() {
   };
 
   const handleMoveExerciseToFolder = (exerciseId: string, folderId?: string) => {
+    markDirty();
     setExercises((prev) =>
       prev.map((ex) =>
         ex.id === exerciseId ? { ...ex, folderId: folderId || undefined } : ex
@@ -224,6 +290,7 @@ export default function App() {
   };
 
   const handleCreateFolder = (name: string) => {
+    markDirty();
     const folder: ExerciseFolder = {
       id: `fld-${Math.random().toString(36).slice(2, 9)}`,
       name,
@@ -233,13 +300,16 @@ export default function App() {
   };
 
   const handleRenameFolder = (folderId: string, name: string) => {
+    markDirty();
     setFolders((prev) =>
       prev.map((f) => (f.id === folderId ? { ...f, name } : f))
     );
   };
 
   const handleDeleteFolder = (folderId: string) => {
+    markDirty();
     setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setCollapsedFolderIds((prev) => prev.filter((id) => id !== folderId));
     setExercises((prev) =>
       prev.map((ex) =>
         ex.folderId === folderId ? { ...ex, folderId: undefined } : ex
@@ -247,10 +317,20 @@ export default function App() {
     );
   };
 
+  const handleToggleFolderCollapse = (folderId: string) => {
+    markDirty();
+    setCollapsedFolderIds((prev) =>
+      prev.includes(folderId)
+        ? prev.filter((id) => id !== folderId)
+        : [...prev, folderId]
+    );
+  };
+
   const handleImportData = (payload: {
     exercises: Exercise[];
     folders?: ExerciseFolder[];
   }) => {
+    markDirty();
     const folderIdRemap = new Map<string, string>();
     const newFolders: ExerciseFolder[] = [];
 
@@ -302,7 +382,7 @@ export default function App() {
 
   const handleExportAllJson = () => {
     triggerDownload(
-      'lexis-studio-library.json',
+      'wysiwygr-uoe-library.json',
       JSON.stringify({ folders, exercises }, null, 2),
       'application/json'
     );
@@ -371,7 +451,7 @@ export default function App() {
             color: 'var(--text-primary)',
           }}
         >
-          Lexis Studio
+          WYSIWYGR&amp;UOE
         </span>
 
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
@@ -455,7 +535,10 @@ export default function App() {
           <select
             id="quick-exercise-select"
             value={activeExercise.id}
-            onChange={(e) => setActiveId(e.target.value)}
+            onChange={(e) => {
+              markDirty();
+              setActiveId(e.target.value);
+            }}
             className="px-3 py-1.5 text-xs font-semibold rounded-lg border max-w-[17rem] sm:max-w-[28rem] truncate cursor-pointer"
             style={{
               backgroundColor: 'var(--bg-elevated)',
@@ -521,9 +604,10 @@ export default function App() {
           >
             <button
               type="button"
-              onClick={() =>
-                setA11y((s) => ({ ...s, fontSize: Math.max(14, s.fontSize - 1) }))
-              }
+              onClick={() => {
+                markDirty();
+                setA11y((s) => ({ ...s, fontSize: Math.max(14, s.fontSize - 1) }));
+              }}
               className="px-2 py-1.5 cursor-pointer hover:opacity-75"
               style={{ color: 'var(--text-primary)' }}
               aria-label="Decrease text size"
@@ -539,9 +623,10 @@ export default function App() {
             </span>
             <button
               type="button"
-              onClick={() =>
-                setA11y((s) => ({ ...s, fontSize: Math.min(28, s.fontSize + 1) }))
-              }
+              onClick={() => {
+                markDirty();
+                setA11y((s) => ({ ...s, fontSize: Math.min(28, s.fontSize + 1) }));
+              }}
               className="px-2 py-1.5 cursor-pointer hover:opacity-75"
               style={{ color: 'var(--text-primary)' }}
               aria-label="Increase text size"
@@ -563,7 +648,10 @@ export default function App() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setA11y((s) => ({ ...s, theme: t.id }))}
+                  onClick={() => {
+                    markDirty();
+                    setA11y((s) => ({ ...s, theme: t.id }));
+                  }}
                   title={t.name}
                   aria-label={`Theme: ${t.name}`}
                   className="w-6 h-6 rounded-md border cursor-pointer transition-transform hover:scale-105 flex items-center justify-center text-[10px] font-bold"
@@ -603,17 +691,19 @@ export default function App() {
             exercise={activeExercise}
             onChange={handleUpdateExercise}
             splitRatio={a11y.splitRatio}
-            onSplitRatioChange={(ratio) =>
-              setA11y((s) => ({ ...s, splitRatio: ratio }))
-            }
+            onSplitRatioChange={(ratio) => {
+              markDirty();
+              setA11y((s) => ({ ...s, splitRatio: ratio }));
+            }}
           />
         ) : (
           <PresenterWorkspace
             exercise={activeExercise}
             splitRatio={a11y.splitRatio}
-            onSplitRatioChange={(ratio) =>
-              setA11y((s) => ({ ...s, splitRatio: ratio }))
-            }
+            onSplitRatioChange={(ratio) => {
+              markDirty();
+              setA11y((s) => ({ ...s, splitRatio: ratio }));
+            }}
           />
         )}
       </main>
@@ -623,8 +713,14 @@ export default function App() {
         open={a11yOpen}
         onClose={() => setA11yOpen(false)}
         settings={a11y}
-        onChange={setA11y}
-        onReset={() => setA11y(DEFAULT_A11Y)}
+        onChange={(next) => {
+          markDirty();
+          setA11y(next);
+        }}
+        onReset={() => {
+          markDirty();
+          setA11y(DEFAULT_A11Y);
+        }}
       />
 
       <ExerciseLibraryModal
@@ -633,8 +729,12 @@ export default function App() {
         onClose={() => setLibraryModal((s) => ({ ...s, open: false }))}
         exercises={exercises}
         folders={folders}
+        collapsedFolderIds={collapsedFolderIds}
         activeExerciseId={activeExercise.id}
-        onSelectExercise={(id) => setActiveId(id)}
+        onSelectExercise={(id) => {
+          markDirty();
+          setActiveId(id);
+        }}
         onCreateExercise={handleCreateExercise}
         onDuplicateExercise={handleDuplicateExercise}
         onDeleteExercise={handleDeleteExercise}
@@ -642,6 +742,7 @@ export default function App() {
         onCreateFolder={handleCreateFolder}
         onRenameFolder={handleRenameFolder}
         onDeleteFolder={handleDeleteFolder}
+        onToggleFolderCollapse={handleToggleFolderCollapse}
         onExportExerciseHtml={(ex) =>
           setExportTarget({ kind: 'exercise', exercise: ex })
         }

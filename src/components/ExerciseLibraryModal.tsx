@@ -11,6 +11,8 @@ import {
   Pencil,
   Check,
   FileCode2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import {
   EXERCISE_TYPES,
@@ -25,6 +27,7 @@ interface ExerciseLibraryModalProps {
   onClose: () => void;
   exercises: Exercise[];
   folders: ExerciseFolder[];
+  collapsedFolderIds: string[];
   activeExerciseId: string;
   onSelectExercise: (id: string) => void;
   onCreateExercise: (type: ExerciseType, folderId?: string) => void;
@@ -34,6 +37,7 @@ interface ExerciseLibraryModalProps {
   onCreateFolder: (name: string) => void;
   onRenameFolder: (folderId: string, name: string) => void;
   onDeleteFolder: (folderId: string) => void;
+  onToggleFolderCollapse: (folderId: string) => void;
   onExportExerciseHtml: (exercise: Exercise) => void;
   onExportFolderHtml: (folderName: string, folderExercises: Exercise[]) => void;
   onExportFolderJson: (folderName: string, folderExercises: Exercise[]) => void;
@@ -50,6 +54,7 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
   onClose,
   exercises,
   folders,
+  collapsedFolderIds,
   activeExerciseId,
   onSelectExercise,
   onCreateExercise,
@@ -59,6 +64,7 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
+  onToggleFolderCollapse,
   onExportExerciseHtml,
   onExportFolderHtml,
   onExportFolderJson,
@@ -523,6 +529,7 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
                 const folderEx = filtered.filter((ex) => ex.folderId === folder.id);
                 const allFolderEx = exercises.filter((ex) => ex.folderId === folder.id);
                 const isRenaming = editingFolderId === folder.id;
+                const isCollapsed = collapsedFolderIds.includes(folder.id);
 
                 return (
                   <div
@@ -531,13 +538,30 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
                     style={{ borderColor: 'var(--border-subtle)' }}
                   >
                     <div
-                      className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b"
+                      className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${
+                        isCollapsed ? '' : 'border-b'
+                      }`}
                       style={{
                         backgroundColor: 'var(--bg-elevated)',
                         borderColor: 'var(--border-subtle)',
                       }}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => onToggleFolderCollapse(folder.id)}
+                          className="p-1 rounded cursor-pointer hover:opacity-75 shrink-0"
+                          style={{ color: 'var(--text-secondary)' }}
+                          aria-expanded={!isCollapsed}
+                          aria-label={isCollapsed ? `Expand folder ${folder.name}` : `Collapse folder ${folder.name}`}
+                          title={isCollapsed ? 'Expand folder' : 'Collapse folder'}
+                        >
+                          {isCollapsed ? (
+                            <ChevronRight className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </button>
                         <Folder className="w-4 h-4 shrink-0" style={{ color: 'var(--accent-fg)' }} />
                         {isRenaming ? (
                           <form
@@ -573,9 +597,14 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
                           </form>
                         ) : (
                           <>
-                            <span className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                            <button
+                              type="button"
+                              onClick={() => onToggleFolderCollapse(folder.id)}
+                              className="text-sm font-semibold truncate cursor-pointer text-left"
+                              style={{ color: 'var(--text-primary)' }}
+                            >
                               {folder.name}
-                            </span>
+                            </button>
                             <span className="text-xs font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
                               ({allFolderEx.length})
                             </span>
@@ -645,45 +674,64 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
                       </div>
                     </div>
 
-                    {folderEx.length === 0 ? (
-                      <div className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        No exercises in this folder yet. Use the folder selector on any exercise below to move it here.
-                      </div>
-                    ) : (
-                      <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-                        {folderEx.map(renderExerciseRow)}
-                      </div>
-                    )}
+                    {!isCollapsed &&
+                      (folderEx.length === 0 ? (
+                        <div className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          No exercises in this folder yet. Use the folder selector on any exercise below to move it here.
+                        </div>
+                      ) : (
+                        <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+                          {folderEx.map(renderExerciseRow)}
+                        </div>
+                      ))}
                   </div>
                 );
               })}
 
               {/* Unfiled Exercises Section */}
-              <div
-                className="rounded-xl border overflow-hidden"
-                style={{ borderColor: 'var(--border-subtle)' }}
-              >
-                <div
-                  className="flex items-center justify-between px-4 py-3 border-b"
-                  style={{
-                    backgroundColor: 'var(--bg-elevated)',
-                    borderColor: 'var(--border-subtle)',
-                  }}
-                >
-                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {folders.length > 0 ? 'Unfiled Exercises' : 'All Exercises'} ({unfiledExercises.length})
-                  </span>
-                </div>
-                {unfiledExercises.length === 0 ? (
-                  <div className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>
-                    No exercises match this filter.
+              {(() => {
+                const unfiledCollapsed = collapsedFolderIds.includes('__unfiled__');
+                return (
+                  <div
+                    className="rounded-xl border overflow-hidden"
+                    style={{ borderColor: 'var(--border-subtle)' }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onToggleFolderCollapse('__unfiled__')}
+                      className={`w-full flex items-center justify-between px-4 py-3 text-left cursor-pointer ${
+                        unfiledCollapsed ? '' : 'border-b'
+                      }`}
+                      style={{
+                        backgroundColor: 'var(--bg-elevated)',
+                        borderColor: 'var(--border-subtle)',
+                      }}
+                      aria-expanded={!unfiledCollapsed}
+                    >
+                      <span className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        {unfiledCollapsed ? (
+                          <ChevronRight className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                        <span>
+                          {folders.length > 0 ? 'Unfiled Exercises' : 'All Exercises'} ({unfiledExercises.length})
+                        </span>
+                      </span>
+                    </button>
+                    {!unfiledCollapsed &&
+                      (unfiledExercises.length === 0 ? (
+                        <div className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          No exercises match this filter.
+                        </div>
+                      ) : (
+                        <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+                          {unfiledExercises.map(renderExerciseRow)}
+                        </div>
+                      ))}
                   </div>
-                ) : (
-                  <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-                    {unfiledExercises.map(renderExerciseRow)}
-                  </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
           )}
         </div>
