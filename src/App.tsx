@@ -21,6 +21,8 @@ import { ExerciseLibraryModal } from './components/ExerciseLibraryModal';
 import { ExportHtmlModal } from './components/ExportHtmlModal';
 import { ShareQrModal } from './components/ShareQrModal';
 import { StudentShareView } from './components/StudentShareView';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import {
   buildFolderStandaloneHtml,
   buildStandaloneHtml,
@@ -35,6 +37,11 @@ import {
   writeIdbSnapshot,
   writeLocalSnapshotSync,
 } from './utils/persistence';
+import {
+  markLastRole,
+  readLastRole,
+  readSavedStudentExercisesSync,
+} from './utils/studentOfflineStore';
 
 const DEFAULT_A11Y: AccessibilitySettings = {
   theme: 'paper-light',
@@ -57,14 +64,62 @@ type ExportTarget =
   | { kind: 'exercise'; exercise: Exercise }
   | { kind: 'folder'; folderName: string; exercises: Exercise[] };
 
-export default function App() {
+function readShareParams(): { shareId: string | null; offlineToken: string | null } {
+  if (typeof window === 'undefined') {
+    return { shareId: null, offlineToken: null };
+  }
   const shareId =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('share')?.trim() || null
-      : null;
+    new URLSearchParams(window.location.search).get('share')?.trim() || null;
+  const hash = window.location.hash || '';
+  let offlineToken: string | null = null;
+  if (hash.startsWith('#offline=')) {
+    try {
+      offlineToken = decodeURIComponent(hash.slice('#offline='.length)).trim() || null;
+    } catch {
+      offlineToken = hash.slice('#offline='.length).trim() || null;
+    }
+  }
+  return { shareId, offlineToken };
+}
 
-  if (shareId) {
-    return <StudentShareView shareId={shareId} />;
+export default function App() {
+  const [routeParams, setRouteParams] = useState(readShareParams);
+  const [forceTeacher, setForceTeacher] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setRouteParams(readShareParams());
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
+    };
+  }, []);
+
+  if (routeParams.offlineToken || routeParams.shareId) {
+    return (
+      <StudentShareView
+        shareId={routeParams.shareId}
+        offlineToken={routeParams.offlineToken}
+        onSwitchToTeacher={() => setForceTeacher(true)}
+      />
+    );
+  }
+
+  if (!forceTeacher && typeof window !== 'undefined') {
+    const savedStudent = readSavedStudentExercisesSync();
+    const localTeacher = readLocalSnapshot(DEFAULT_SNAPSHOT);
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone ===
+        true;
+    if (
+      savedStudent.length > 0 &&
+      localTeacher.snapshot.exercises.length === 0 &&
+      (readLastRole() === 'student' || isStandalone)
+    ) {
+      return <StudentShareView onSwitchToTeacher={() => setForceTeacher(true)} />;
+    }
   }
 
   return <TeacherWorkspaceApp />;
@@ -156,6 +211,9 @@ function TeacherWorkspaceApp() {
     if (hydratedRef.current) {
       savedAtRef.current = now;
       dirtyRef.current = true;
+      if (exercises.length > 0) {
+        markLastRole('teacher');
+      }
     }
     const snapshot: WorkspaceSnapshot = {
       exercises,
@@ -644,6 +702,8 @@ function TeacherWorkspaceApp() {
 
         {/* Quick Accessibility & Mobile Actions */}
         <div className="flex items-center gap-2 shrink-0">
+          <PWAInstallButton />
+
           <button
             type="button"
             onClick={() => setLibraryModal({ open: true, tab: 'library' })}
@@ -953,6 +1013,8 @@ function TeacherWorkspaceApp() {
         a11y={a11y}
         onClose={() => setShareTarget(null)}
       />
+
+      <OfflineIndicator />
     </div>
   );
 }

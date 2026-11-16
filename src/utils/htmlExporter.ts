@@ -652,3 +652,151 @@ export function buildFolderStandaloneHtml(
 function folderLabelSafe(name: string): string {
   return name.trim() || 'Folder';
 }
+
+export function buildStudentOfflineHtml(
+  rawExercise: Exercise,
+  a11y: AccessibilitySettings
+): string {
+  const exercise = stripExerciseAnswers(rawExercise);
+  const meta = EXERCISE_TYPES.find((m) => m.type === exercise.type)!;
+  const dummyAnswers: Record<string, AnswerEntry> = {};
+  const rendered = buildExerciseMarkup(exercise, 0, dummyAnswers);
+  const safeExportJson = JSON.stringify({
+    exercises: [exercise],
+  }).replace(/<\//g, '<\\/');
+
+  const initialThemeClass =
+    a11y.theme === 'warm-cream'
+      ? 'theme-cream'
+      : a11y.theme === 'slate-dark'
+        ? 'theme-dark'
+        : a11y.theme === 'high-contrast'
+          ? 'theme-contrast'
+          : '';
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(rendered.title)} — Student Copy</title>
+  <style>
+    :root {
+      --bg: #F6F5F1; --panel: #FFFFFF; --elevated: #EFECE4;
+      --text: #18181B; --muted: #52525B; --border: #DDD9CE; --border-strong: #B8B2A2;
+      --accent: #2E3A8C; --accent-soft: rgba(46, 58, 140, 0.12);
+      --font-size: ${a11y.fontSize}px; --line-height: ${a11y.lineHeight}; --split: ${a11y.splitRatio}%;
+    }
+    body.theme-cream { --bg: #EFE7D8; --panel: #F7F1E5; --elevated: #EAE0CE; --text: #231B14; --muted: #6B5A4B; --border: #D8CBB5; --border-strong: #B8A58B; --accent: #854D0E; --accent-soft: rgba(133,77,14,0.14); }
+    body.theme-dark { --bg: #0B1120; --panel: #111827; --elevated: #1E293B; --text: #F8FAFC; --muted: #94A3B8; --border: #334155; --border-strong: #475569; --accent: #38BDF8; --accent-soft: rgba(56,189,248,0.18); }
+    body.theme-contrast { --bg: #000000; --panel: #050505; --elevated: #141414; --text: #FFFFFF; --muted: #FEF08A; --border: #3F3F46; --border-strong: #FACC15; --accent: #FACC15; --accent-soft: rgba(250,204,21,0.22); }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    header.topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    button, select, input { font: inherit; font-size: 13px; padding: 6px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--elevated); color: var(--text); }
+    button, select { cursor: pointer; font-weight: 600; }
+    main.split { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    main.split.landscape { flex-direction: row; }
+    section.pane { min-height: 0; min-width: 0; overflow-y: auto; padding: 24px 30px; font-size: var(--font-size); line-height: var(--line-height); }
+    section.left-pane { background: var(--panel); flex: 0 0 var(--split); }
+    section.right-pane { flex: 1 1 auto; }
+    .resizer { flex: 0 0 12px; background: var(--elevated); border-left: 1px solid var(--border); border-right: 1px solid var(--border); display: flex; align-items: center; justify-content: center; touch-action: none; cursor: col-resize; }
+    main.split:not(.landscape) .resizer { border-left: none; border-right: none; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); cursor: row-resize; }
+    .resizer-grip { width: 22px; height: 44px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); user-select: none; }
+    main.split:not(.landscape) .resizer-grip { width: 44px; height: 22px; }
+    h1 { margin: 0 0 8px 0; font-size: 1.6em; line-height: 1.25; }
+    .meta { font-size: 13px; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+    .instructions { font-size: 0.9em; color: var(--muted); padding-bottom: 16px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+    .gap-slot { display: inline-block; padding: 1px 8px; margin: 0 3px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+    .stem-word { text-transform: uppercase; font-weight: 800; letter-spacing: 0.04em; }
+    .q-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+    .q-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+    .opts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .opts-col { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .opt-item { padding: 8px 10px; border-radius: 6px; background: var(--elevated); border: 1px solid var(--border); cursor: pointer; }
+    .opt-item.selected { background: var(--accent-soft); border-color: var(--accent); }
+    .opt-ltr { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 5px; background: var(--accent-soft); color: var(--accent); font-weight: 700; margin-right: 6px; font-size: 0.85em; }
+    .kwt-line { margin-bottom: 6px; }
+    .kwt-key { margin: 6px 0; font-size: 0.95em; letter-spacing: 0.06em; color: var(--accent); }
+    .text-section { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+    .student-input { width: 100%; margin-top: 6px; padding: 8px 10px; font-size: 0.95em; background: var(--elevated); color: var(--text); border: 1px solid var(--border); border-radius: 8px; }
+    .blank-line { display: none; }
+    .answer-key, .note { display: none !important; }
+  </style>
+</head>
+<body class="${initialThemeClass}">
+  <header class="topbar">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <strong>${escapeHtml(rendered.title)}</strong>
+      <span style="color:var(--muted);font-size:13px;">· ${escapeHtml(meta.title)} · Offline Copy</span>
+    </div>
+    <div class="controls">
+      <button type="button" onclick="adjSize(-1)" aria-label="Decrease text size">A-</button>
+      <button type="button" onclick="adjSize(1)" aria-label="Increase text size">A+</button>
+      <select onchange="setTheme(this.value)" aria-label="Colour theme">
+        <option value="" ${initialThemeClass === '' ? 'selected' : ''}>Paper Light</option>
+        <option value="theme-cream" ${initialThemeClass === 'theme-cream' ? 'selected' : ''}>Warm Cream</option>
+        <option value="theme-dark" ${initialThemeClass === 'theme-dark' ? 'selected' : ''}>Slate Dark</option>
+        <option value="theme-contrast" ${initialThemeClass === 'theme-contrast' ? 'selected' : ''}>High Contrast</option>
+      </select>
+    </div>
+  </header>
+  <main class="split" id="split-root">
+    <section class="pane left-pane">${rendered.leftHtml}</section>
+    <div class="resizer" id="resizer" role="separator" aria-label="Resize panels" title="Drag to resize panels">
+      <div class="resizer-grip" aria-hidden="true">⋮</div>
+    </div>
+    <section class="pane right-pane">${rendered.rightHtml}</section>
+  </main>
+  <script type="application/json" id="wysiwygr-export-data">${safeExportJson}</script>
+  <script>
+    var curSize = ${a11y.fontSize};
+    function adjSize(d) {
+      curSize = Math.min(28, Math.max(14, curSize + d));
+      document.documentElement.style.setProperty('--font-size', curSize + 'px');
+    }
+    function setTheme(cls) { document.body.className = cls; }
+    var splitRoot = document.getElementById('split-root');
+    var resizer = document.getElementById('resizer');
+    function updateOrient() {
+      var land = window.innerWidth > window.innerHeight;
+      splitRoot.classList.toggle('landscape', land);
+      resizer.querySelector('.resizer-grip').textContent = land ? '⋮' : '⋯';
+    }
+    updateOrient();
+    window.addEventListener('resize', updateOrient);
+    window.addEventListener('orientationchange', updateOrient);
+    var dragging = false;
+    resizer.addEventListener('pointerdown', function(e) { e.preventDefault(); resizer.setPointerCapture(e.pointerId); dragging = true; });
+    resizer.addEventListener('pointermove', function(e) {
+      if (!dragging) return;
+      var rect = splitRoot.getBoundingClientRect();
+      var land = splitRoot.classList.contains('landscape');
+      var pct = land ? ((e.clientX - rect.left) / rect.width) * 100 : ((e.clientY - rect.top) / rect.height) * 100;
+      document.documentElement.style.setProperty('--split', Math.min(82, Math.max(18, pct)) + '%');
+    });
+    function endDrag(e) { if (!dragging) return; if (resizer.hasPointerCapture && resizer.hasPointerCapture(e.pointerId)) resizer.releasePointerCapture(e.pointerId); dragging = false; }
+    resizer.addEventListener('pointerup', endDrag);
+    resizer.addEventListener('pointercancel', endDrag);
+
+    // Enable interactive clicks & note inputs in offline student copy
+    document.querySelectorAll('.opt-item').forEach(function(item) {
+      item.addEventListener('click', function() {
+        var parent = item.parentElement;
+        if (parent) parent.querySelectorAll('.opt-item').forEach(function(s) { s.classList.remove('selected'); });
+        item.classList.add('selected');
+      });
+    });
+    document.querySelectorAll('.blank-line').forEach(function(el) {
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'student-input';
+      inp.placeholder = 'Type your answer...';
+      el.parentNode.insertBefore(inp, el.nextSibling);
+    });
+  </script>
+</body>
+</html>`;
+}
+
