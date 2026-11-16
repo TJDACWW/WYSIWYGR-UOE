@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Search,
   FolderInput,
+  QrCode,
 } from 'lucide-react';
 import {
   EXERCISE_TYPES,
@@ -43,6 +44,7 @@ interface ExerciseLibraryModalProps {
   onDeleteFolder: (folderId: string, deleteExercises: boolean) => void;
   onToggleFolderCollapse: (folderId: string) => void;
   onExportExerciseHtml: (exercise: Exercise) => void;
+  onShareExerciseQr: (exercise: Exercise) => void;
   onExportFolderHtml: (folderName: string, folderExercises: Exercise[]) => void;
   onExportFolderJson: (folderName: string, folderExercises: Exercise[]) => void;
   onImportData: (payload: {
@@ -72,6 +74,7 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
   onDeleteFolder,
   onToggleFolderCollapse,
   onExportExerciseHtml,
+  onShareExerciseQr,
   onExportFolderHtml,
   onExportFolderJson,
   onImportData,
@@ -333,6 +336,21 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
             }}
           >
             {isActive ? 'Open' : 'Load'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onShareExerciseQr(ex)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
+            style={{
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-secondary)',
+            }}
+            title="Share QR code (without answer key)"
+            aria-label={`Share QR code for ${ex.title}`}
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>QR</span>
           </button>
 
           <button

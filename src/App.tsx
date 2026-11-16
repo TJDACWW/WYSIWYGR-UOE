@@ -19,6 +19,8 @@ import { PresenterWorkspace } from './components/PresenterWorkspace';
 import { AccessibilityPanel } from './components/AccessibilityPanel';
 import { ExerciseLibraryModal } from './components/ExerciseLibraryModal';
 import { ExportHtmlModal } from './components/ExportHtmlModal';
+import { ShareQrModal } from './components/ShareQrModal';
+import { StudentShareView } from './components/StudentShareView';
 import {
   buildFolderStandaloneHtml,
   buildStandaloneHtml,
@@ -56,6 +58,19 @@ type ExportTarget =
   | { kind: 'folder'; folderName: string; exercises: Exercise[] };
 
 export default function App() {
+  const shareId =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('share')?.trim() || null
+      : null;
+
+  if (shareId) {
+    return <StudentShareView shareId={shareId} />;
+  }
+
+  return <TeacherWorkspaceApp />;
+}
+
+function TeacherWorkspaceApp() {
   const initialLocal = useRef(readLocalSnapshot(DEFAULT_SNAPSHOT));
   const [exercises, setExercises] = useState<Exercise[]>(
     initialLocal.current.snapshot.exercises
@@ -85,6 +100,7 @@ export default function App() {
     tab: 'library' | 'create';
   }>({ open: false, tab: 'library' });
   const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
+  const [shareTarget, setShareTarget] = useState<Exercise | null>(null);
 
   // Hydrate from server & IndexedDB on initial load so changes always carry over
   useEffect(() => {
@@ -515,16 +531,26 @@ export default function App() {
             Accessibility
           </button>
           {activeExercise && (
-            <button
-              type="button"
-              onClick={() =>
-                setExportTarget({ kind: 'exercise', exercise: activeExercise })
-              }
-              className="hover:underline underline-offset-4 cursor-pointer whitespace-nowrap shrink-0"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              Export HTML
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setShareTarget(activeExercise)}
+                className="hover:underline underline-offset-4 cursor-pointer whitespace-nowrap shrink-0"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Share QR
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setExportTarget({ kind: 'exercise', exercise: activeExercise })
+                }
+                className="hover:underline underline-offset-4 cursor-pointer whitespace-nowrap shrink-0"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Export HTML
+              </button>
+            </>
           )}
         </nav>
 
@@ -632,20 +658,34 @@ export default function App() {
           </button>
 
           {activeExercise && (
-            <button
-              type="button"
-              onClick={() =>
-                setExportTarget({ kind: 'exercise', exercise: activeExercise })
-              }
-              className="md:hidden px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
-              style={{
-                backgroundColor: 'var(--bg-elevated)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--text-primary)',
-              }}
-            >
-              Export
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setShareTarget(activeExercise)}
+                className="md:hidden px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Share QR
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setExportTarget({ kind: 'exercise', exercise: activeExercise })
+                }
+                className="md:hidden px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Export
+              </button>
+            </>
           )}
 
           {/* Quick Text Size */}
@@ -876,6 +916,7 @@ export default function App() {
         onExportExerciseHtml={(ex) =>
           setExportTarget({ kind: 'exercise', exercise: ex })
         }
+        onShareExerciseQr={(ex) => setShareTarget(ex)}
         onExportFolderHtml={(folderName, folderExercises) =>
           setExportTarget({
             kind: 'folder',
@@ -904,6 +945,13 @@ export default function App() {
         }
         onClose={() => setExportTarget(null)}
         onConfirmExport={handleConfirmProtectedHtmlExport}
+      />
+
+      <ShareQrModal
+        open={shareTarget !== null}
+        exercise={shareTarget}
+        a11y={a11y}
+        onClose={() => setShareTarget(null)}
       />
     </div>
   );

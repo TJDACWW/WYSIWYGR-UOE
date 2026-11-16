@@ -26,6 +26,8 @@ interface PresenterWorkspaceProps {
   exercise: Exercise;
   splitRatio: number;
   onSplitRatioChange: (nextRatio: number) => void;
+  studentMode?: boolean;
+  storageKey?: string;
 }
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -38,20 +40,47 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
   exercise,
   splitRatio,
   onSplitRatioChange,
+  studentMode = false,
+  storageKey,
 }) => {
   const meta = EXERCISE_TYPES.find((m) => m.type === exercise.type)!;
 
   // Answers state keyed by item number / gapNumber
-  const [choiceAnswers, setChoiceAnswers] = useState<Record<number, number>>({});
-  const [textAnswers, setTextAnswers] = useState<Record<number, string>>({});
-  const [letterAnswers, setLetterAnswers] = useState<Record<number, string>>({});
+  const [choiceAnswers, setChoiceAnswers] = useState<Record<number, number>>(() => {
+    if (!storageKey) return {};
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw).choiceAnswers || {} : {};
+    } catch {
+      return {};
+    }
+  });
+  const [textAnswers, setTextAnswers] = useState<Record<number, string>>(() => {
+    if (!storageKey) return {};
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw).textAnswers || {} : {};
+    } catch {
+      return {};
+    }
+  });
+  const [letterAnswers, setLetterAnswers] = useState<Record<number, string>>(() => {
+    if (!storageKey) return {};
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw).letterAnswers || {} : {};
+    } catch {
+      return {};
+    }
+  });
   const [revealedItems, setRevealedItems] = useState<Record<number, boolean>>({});
   const [revealAll, setRevealAll] = useState(false);
   const [checked, setChecked] = useState(false);
   const [activeItemNum, setActiveItemNum] = useState<number | null>(null);
 
-  // Reset responses when switching exercises
+  // Reset responses when switching exercises (unless bound to a shared student storageKey)
   useEffect(() => {
+    if (storageKey) return;
     setChoiceAnswers({});
     setTextAnswers({});
     setLetterAnswers({});
@@ -59,7 +88,19 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
     setRevealAll(false);
     setChecked(false);
     setActiveItemNum(null);
-  }, [exercise.id]);
+  }, [exercise.id, storageKey]);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ choiceAnswers, textAnswers, letterAnswers })
+      );
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [storageKey, choiceAnswers, textAnswers, letterAnswers]);
 
   const handleToggleRevealAll = () => {
     const next = !revealAll;
@@ -129,7 +170,9 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
     return { correct, total };
   };
 
-  const score = checked ? computeScore() : null;
+  const effectiveChecked = !studentMode && checked;
+  const effectiveRevealAll = !studentMode && revealAll;
+  const score = effectiveChecked ? computeScore() : null;
 
   const readerTextStyle: React.CSSProperties = {
     fontSize: 'var(--reader-font-size)',
@@ -458,7 +501,7 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
                     Gap {item.gapNumber}
                   </span>
                   <div className="flex items-center gap-3">
-                    {checked && (
+                    {!studentMode && checked && (
                       <span
                         className="inline-flex items-center gap-1 text-xs font-semibold"
                         style={{ color: isOk ? 'var(--success-fg)' : 'var(--error-fg)' }}
@@ -476,14 +519,16 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
                         )}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => toggleItemReveal(item.gapNumber)}
-                      className="text-xs font-medium cursor-pointer hover:underline"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      {isRev ? 'Hide Key' : 'Show Key'}
-                    </button>
+                    {!studentMode && (
+                      <button
+                        type="button"
+                        onClick={() => toggleItemReveal(item.gapNumber)}
+                        className="text-xs font-medium cursor-pointer hover:underline"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {isRev ? 'Hide Key' : 'Show Key'}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -594,34 +639,36 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    {checked && (
-                      <span
-                        className="inline-flex items-center gap-1 text-xs font-semibold"
-                        style={{ color: isOk ? 'var(--success-fg)' : 'var(--error-fg)' }}
+                  {!studentMode && (
+                    <div className="flex items-center gap-3">
+                      {checked && (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs font-semibold"
+                          style={{ color: isOk ? 'var(--success-fg)' : 'var(--error-fg)' }}
+                        >
+                          {isOk ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Correct
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3.5 h-3.5" />
+                              Incorrect
+                            </>
+                          )}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleItemReveal(item.gapNumber)}
+                        className="text-xs font-medium cursor-pointer hover:underline"
+                        style={{ color: 'var(--text-muted)' }}
                       >
-                        {isOk ? (
-                          <>
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Correct
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="w-3.5 h-3.5" />
-                            Incorrect
-                          </>
-                        )}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => toggleItemReveal(item.gapNumber)}
-                      className="text-xs font-medium cursor-pointer hover:underline"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      {isRev ? 'Hide Key' : 'Show Key'}
-                    </button>
-                  </div>
+                        {isRev ? 'Hide Key' : 'Show Key'}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <input
@@ -705,34 +752,36 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
                     </strong>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    {checked && (
-                      <span
-                        className="inline-flex items-center gap-1 text-xs font-semibold"
-                        style={{ color: isOk ? 'var(--success-fg)' : 'var(--error-fg)' }}
+                  {!studentMode && (
+                    <div className="flex items-center gap-3">
+                      {checked && (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs font-semibold"
+                          style={{ color: isOk ? 'var(--success-fg)' : 'var(--error-fg)' }}
+                        >
+                          {isOk ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Correct
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3.5 h-3.5" />
+                              Check Key
+                            </>
+                          )}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleItemReveal(item.number)}
+                        className="text-xs font-medium cursor-pointer hover:underline"
+                        style={{ color: 'var(--text-muted)' }}
                       >
-                        {isOk ? (
-                          <>
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Correct
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="w-3.5 h-3.5" />
-                            Check Key
-                          </>
-                        )}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => toggleItemReveal(item.number)}
-                      className="text-xs font-medium cursor-pointer hover:underline"
-                      style={{ color: 'var(--text-muted)' }}
-                    >
-                      {isRev ? 'Hide Key' : 'Show Key'}
-                    </button>
-                  </div>
+                        {isRev ? 'Hide Key' : 'Show Key'}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <input
@@ -812,14 +861,16 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
                     </span>
                     {item.question}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => toggleItemReveal(item.number)}
-                    className="text-xs font-medium cursor-pointer hover:underline shrink-0"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {isRev ? 'Hide Key' : 'Show Key'}
-                  </button>
+                  {!studentMode && (
+                    <button
+                      type="button"
+                      onClick={() => toggleItemReveal(item.number)}
+                      className="text-xs font-medium cursor-pointer hover:underline shrink-0"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      {isRev ? 'Hide Key' : 'Show Key'}
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -1071,14 +1122,16 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
                   </span>
                   {item.question}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => toggleItemReveal(item.number)}
-                  className="text-xs font-medium cursor-pointer hover:underline shrink-0"
-                  style={{ color: 'var(--text-muted)' }}
-                >
-                  {isRev ? 'Hide Key' : 'Show Key'}
-                </button>
+                {!studentMode && (
+                  <button
+                    type="button"
+                    onClick={() => toggleItemReveal(item.number)}
+                    className="text-xs font-medium cursor-pointer hover:underline shrink-0"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    {isRev ? 'Hide Key' : 'Show Key'}
+                  </button>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1171,10 +1224,12 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
       >
         <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
           <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-            Presentation View
+            {studentMode ? 'Shared Exercise Copy' : 'Presentation View'}
           </span>
           <span aria-hidden="true">·</span>
-          <span>Panels scroll independently</span>
+          <span>
+            {studentMode ? 'Answer key excluded · Panels scroll independently' : 'Panels scroll independently'}
+          </span>
           {score && (
             <>
               <span aria-hidden="true">·</span>
@@ -1186,33 +1241,37 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setChecked((c) => !c)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer whitespace-nowrap"
-            style={{
-              backgroundColor: checked ? 'var(--accent-bg)' : 'var(--bg-panel)',
-              borderColor: checked ? 'var(--accent-bg)' : 'var(--border-subtle)',
-              color: checked ? 'var(--accent-text)' : 'var(--text-primary)',
-            }}
-          >
-            <CheckCheck className="w-3.5 h-3.5" />
-            {checked ? 'Hide Check' : 'Check Answers'}
-          </button>
+          {!studentMode && (
+            <>
+              <button
+                type="button"
+                onClick={() => setChecked((c) => !c)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer whitespace-nowrap"
+                style={{
+                  backgroundColor: checked ? 'var(--accent-bg)' : 'var(--bg-panel)',
+                  borderColor: checked ? 'var(--accent-bg)' : 'var(--border-subtle)',
+                  color: checked ? 'var(--accent-text)' : 'var(--text-primary)',
+                }}
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                {checked ? 'Hide Check' : 'Check Answers'}
+              </button>
 
-          <button
-            type="button"
-            onClick={handleToggleRevealAll}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer whitespace-nowrap"
-            style={{
-              backgroundColor: revealAll ? 'var(--accent-soft)' : 'var(--bg-panel)',
-              borderColor: revealAll ? 'var(--accent-fg)' : 'var(--border-subtle)',
-              color: revealAll ? 'var(--accent-fg)' : 'var(--text-primary)',
-            }}
-          >
-            {revealAll ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            {revealAll ? 'Hide Answer Key' : 'Reveal All Answers'}
-          </button>
+              <button
+                type="button"
+                onClick={handleToggleRevealAll}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer whitespace-nowrap"
+                style={{
+                  backgroundColor: effectiveRevealAll ? 'var(--accent-soft)' : 'var(--bg-panel)',
+                  borderColor: effectiveRevealAll ? 'var(--accent-fg)' : 'var(--border-subtle)',
+                  color: effectiveRevealAll ? 'var(--accent-fg)' : 'var(--text-primary)',
+                }}
+              >
+                {effectiveRevealAll ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {effectiveRevealAll ? 'Hide Answer Key' : 'Reveal All Answers'}
+              </button>
+            </>
+          )}
 
           <button
             type="button"
