@@ -1,5 +1,6 @@
 import express from 'express';
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -39,6 +40,7 @@ function writeWorkspace(payload: Record<string, unknown>) {
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
 
   app.use(express.json({ limit: '15mb' }));
   app.use(express.text({ type: 'text/plain', limit: '15mb' }));
@@ -78,13 +80,17 @@ async function startServer() {
   } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`WYSIWYGR&UOE server listening on port ${PORT}`);
   });
 }
