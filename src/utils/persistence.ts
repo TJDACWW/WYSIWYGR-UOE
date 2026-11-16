@@ -33,7 +33,7 @@ export function readLocalSnapshot(defaults: WorkspaceSnapshot): {
     const raw = localStorage.getItem(LS_WORKSPACE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<WorkspaceSnapshot>;
-      if (Array.isArray(parsed.exercises) && parsed.exercises.length > 0) {
+      if (Array.isArray(parsed.exercises)) {
         return {
           snapshot: {
             exercises: parsed.exercises,
@@ -41,7 +41,7 @@ export function readLocalSnapshot(defaults: WorkspaceSnapshot): {
             collapsedFolderIds: Array.isArray(parsed.collapsedFolderIds)
               ? parsed.collapsedFolderIds
               : [],
-            activeId: parsed.activeId || parsed.exercises[0].id,
+            activeId: parsed.activeId || parsed.exercises[0]?.id || '',
             a11y: { ...defaults.a11y, ...(parsed.a11y || {}) },
             savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now(),
           },
@@ -54,7 +54,7 @@ export function readLocalSnapshot(defaults: WorkspaceSnapshot): {
     const legacyExRaw = localStorage.getItem(LEGACY_KEYS.exercises);
     if (legacyExRaw) {
       const legacyEx = JSON.parse(legacyExRaw);
-      if (Array.isArray(legacyEx) && legacyEx.length > 0) {
+      if (Array.isArray(legacyEx)) {
         const legacyFoldersRaw = localStorage.getItem(LEGACY_KEYS.folders);
         const legacyActive = localStorage.getItem(LEGACY_KEYS.activeId);
         const legacyA11yRaw = localStorage.getItem(LEGACY_KEYS.a11y);
@@ -62,7 +62,7 @@ export function readLocalSnapshot(defaults: WorkspaceSnapshot): {
           exercises: legacyEx,
           folders: legacyFoldersRaw ? JSON.parse(legacyFoldersRaw) : [],
           collapsedFolderIds: [],
-          activeId: legacyActive || legacyEx[0].id,
+          activeId: legacyActive || legacyEx[0]?.id || '',
           a11y: {
             ...defaults.a11y,
             ...(legacyA11yRaw ? JSON.parse(legacyA11yRaw) : {}),
@@ -116,7 +116,7 @@ export async function readIdbSnapshot(): Promise<WorkspaceSnapshot | null> {
       const req = store.get(IDB_KEY);
       req.onsuccess = () => {
         const res = req.result as WorkspaceSnapshot | undefined;
-        if (res && Array.isArray(res.exercises) && res.exercises.length > 0) {
+        if (res && Array.isArray(res.exercises)) {
           resolve(res);
         } else {
           resolve(null);
@@ -150,7 +150,7 @@ export async function fetchServerSnapshot(): Promise<WorkspaceSnapshot | null> {
     const res = await fetch('/api/workspace', { cache: 'no-store' });
     if (!res.ok) return null;
     const data = await res.json();
-    if (data && !data.empty && Array.isArray(data.exercises) && data.exercises.length > 0) {
+    if (data && !data.empty && Array.isArray(data.exercises)) {
       return data as WorkspaceSnapshot;
     }
     return null;

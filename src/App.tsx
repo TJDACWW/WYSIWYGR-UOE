@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Minus, Plus, SlidersHorizontal, MonitorPlay, PenLine } from 'lucide-react';
+import { Minus, Plus, SlidersHorizontal, MonitorPlay, PenLine, FolderOpen } from 'lucide-react';
 import {
   AccessibilitySettings,
   EXERCISE_TYPES,
@@ -13,7 +13,7 @@ import {
   ExerciseType,
   THEME_PALETTES,
 } from './types/exercise';
-import { SAMPLE_EXERCISES, createBlankExercise } from './data/sampleExercises';
+import { createBlankExercise } from './utils/exerciseFactory';
 import { EditorWorkspace } from './components/EditorWorkspace';
 import { PresenterWorkspace } from './components/PresenterWorkspace';
 import { AccessibilityPanel } from './components/AccessibilityPanel';
@@ -43,10 +43,10 @@ const DEFAULT_A11Y: AccessibilitySettings = {
 };
 
 const DEFAULT_SNAPSHOT: WorkspaceSnapshot = {
-  exercises: SAMPLE_EXERCISES,
+  exercises: [],
   folders: [],
   collapsedFolderIds: [],
-  activeId: SAMPLE_EXERCISES[0].id,
+  activeId: '',
   a11y: DEFAULT_A11Y,
   savedAt: 0,
 };
@@ -115,7 +115,7 @@ export default function App() {
           setCollapsedFolderIds(
             Array.isArray(newest.collapsedFolderIds) ? newest.collapsedFolderIds : []
           );
-          setActiveId(newest.activeId || newest.exercises[0].id);
+          setActiveId(newest.activeId || newest.exercises[0]?.id || '');
           setA11y({ ...DEFAULT_A11Y, ...(newest.a11y || {}) });
           writeLocalSnapshotSync(newest);
           writeIdbSnapshot(newest);
@@ -185,8 +185,8 @@ export default function App() {
     };
   }, []);
 
-  const activeExercise =
-    exercises.find((ex) => ex.id === activeId) || exercises[0];
+  const activeExercise: Exercise | null =
+    exercises.find((ex) => ex.id === activeId) || exercises[0] || null;
 
   const palette = THEME_PALETTES[a11y.theme] || THEME_PALETTES['paper-light'];
 
@@ -269,12 +269,11 @@ export default function App() {
   };
 
   const handleDeleteExercise = (id: string) => {
-    if (exercises.length <= 1) return;
     markDirty();
     setExercises((prev) => {
       const next = prev.filter((ex) => ex.id !== id);
-      if (id === activeId && next[0]) {
-        setActiveId(next[0].id);
+      if (id === activeId) {
+        setActiveId(next[0]?.id || '');
       }
       return next;
     });
@@ -287,6 +286,30 @@ export default function App() {
         ex.id === exerciseId ? { ...ex, folderId: folderId || undefined } : ex
       )
     );
+  };
+
+  const handleBulkMoveExercises = (exerciseIds: string[], folderId?: string) => {
+    if (exerciseIds.length === 0) return;
+    markDirty();
+    const idSet = new Set(exerciseIds);
+    setExercises((prev) =>
+      prev.map((ex) =>
+        idSet.has(ex.id) ? { ...ex, folderId: folderId || undefined } : ex
+      )
+    );
+  };
+
+  const handleBulkDeleteExercises = (exerciseIds: string[]) => {
+    if (exerciseIds.length === 0) return;
+    markDirty();
+    const idSet = new Set(exerciseIds);
+    setExercises((prev) => {
+      const next = prev.filter((ex) => !idSet.has(ex.id));
+      if (idSet.has(activeId)) {
+        setActiveId(next[0]?.id || '');
+      }
+      return next;
+    });
   };
 
   const handleCreateFolder = (name: string) => {
@@ -306,15 +329,25 @@ export default function App() {
     );
   };
 
-  const handleDeleteFolder = (folderId: string) => {
+  const handleDeleteFolder = (folderId: string, deleteExercises: boolean) => {
     markDirty();
     setFolders((prev) => prev.filter((f) => f.id !== folderId));
     setCollapsedFolderIds((prev) => prev.filter((id) => id !== folderId));
-    setExercises((prev) =>
-      prev.map((ex) =>
+    setExercises((prev) => {
+      if (deleteExercises) {
+        const next = prev.filter((ex) => ex.folderId !== folderId);
+        const removedActive = prev.some(
+          (ex) => ex.id === activeId && ex.folderId === folderId
+        );
+        if (removedActive) {
+          setActiveId(next[0]?.id || '');
+        }
+        return next;
+      }
+      return prev.map((ex) =>
         ex.folderId === folderId ? { ...ex, folderId: undefined } : ex
-      )
-    );
+      );
+    });
   };
 
   const handleToggleFolderCollapse = (folderId: string) => {
@@ -425,7 +458,9 @@ export default function App() {
     }
   };
 
-  const activeMeta = EXERCISE_TYPES.find((m) => m.type === activeExercise.type)!;
+  const activeMeta = activeExercise
+    ? EXERCISE_TYPES.find((m) => m.type === activeExercise.type) || null
+    : null;
 
   return (
     <div
@@ -479,40 +514,44 @@ export default function App() {
           >
             Accessibility
           </button>
-          <button
-            type="button"
-            onClick={() =>
-              setExportTarget({ kind: 'exercise', exercise: activeExercise })
-            }
-            className="hover:underline underline-offset-4 cursor-pointer whitespace-nowrap shrink-0"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            Export HTML
-          </button>
+          {activeExercise && (
+            <button
+              type="button"
+              onClick={() =>
+                setExportTarget({ kind: 'exercise', exercise: activeExercise })
+              }
+              className="hover:underline underline-offset-4 cursor-pointer whitespace-nowrap shrink-0"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Export HTML
+            </button>
+          )}
         </nav>
 
         <div className="shrink-0">
-          <button
-            type="button"
-            onClick={() => setMode((m) => (m === 'edit' ? 'present' : 'edit'))}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 transition-opacity hover:opacity-90"
-            style={{
-              backgroundColor: 'var(--accent-bg)',
-              color: 'var(--accent-text)',
-            }}
-          >
-            {mode === 'edit' ? (
-              <>
-                <MonitorPlay className="w-4 h-4" />
-                <span>Present on Screen</span>
-              </>
-            ) : (
-              <>
-                <PenLine className="w-4 h-4" />
-                <span>Back to Editor</span>
-              </>
-            )}
-          </button>
+          {activeExercise && (
+            <button
+              type="button"
+              onClick={() => setMode((m) => (m === 'edit' ? 'present' : 'edit'))}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 transition-opacity hover:opacity-90"
+              style={{
+                backgroundColor: 'var(--accent-bg)',
+                color: 'var(--accent-text)',
+              }}
+            >
+              {mode === 'edit' ? (
+                <>
+                  <MonitorPlay className="w-4 h-4" />
+                  <span>Present on Screen</span>
+                </>
+              ) : (
+                <>
+                  <PenLine className="w-4 h-4" />
+                  <span>Back to Editor</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </header>
 
@@ -532,36 +571,49 @@ export default function App() {
           >
             Active Exercise:
           </label>
-          <select
-            id="quick-exercise-select"
-            value={activeExercise.id}
-            onChange={(e) => {
-              markDirty();
-              setActiveId(e.target.value);
-            }}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg border max-w-[17rem] sm:max-w-[28rem] truncate cursor-pointer"
-            style={{
-              backgroundColor: 'var(--bg-elevated)',
-              borderColor: 'var(--border-subtle)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            {exercises.map((ex) => {
-              const m = EXERCISE_TYPES.find((t) => t.type === ex.type);
-              return (
-                <option key={ex.id} value={ex.id}>
-                  {m?.title} — {ex.title || 'Untitled'}
-                </option>
-              );
-            })}
-          </select>
+          {activeExercise ? (
+            <>
+              <select
+                id="quick-exercise-select"
+                value={activeExercise.id}
+                onChange={(e) => {
+                  markDirty();
+                  setActiveId(e.target.value);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border max-w-[17rem] sm:max-w-[28rem] truncate cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                {exercises.map((ex) => {
+                  const m = EXERCISE_TYPES.find((t) => t.type === ex.type);
+                  return (
+                    <option key={ex.id} value={ex.id}>
+                      {m?.title} — {ex.title || 'Untitled'}
+                    </option>
+                  );
+                })}
+              </select>
 
-          <span
-            className="hidden xl:inline text-xs whitespace-nowrap shrink-0"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            {activeMeta.title}
-          </span>
+              {activeMeta && (
+                <span
+                  className="hidden xl:inline text-xs whitespace-nowrap shrink-0"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  {activeMeta.title}
+                </span>
+              )}
+            </>
+          ) : (
+            <span
+              className="text-xs font-medium"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              No exercises yet
+            </span>
+          )}
         </div>
 
         {/* Quick Accessibility & Mobile Actions */}
@@ -579,20 +631,22 @@ export default function App() {
             Library
           </button>
 
-          <button
-            type="button"
-            onClick={() =>
-              setExportTarget({ kind: 'exercise', exercise: activeExercise })
-            }
-            className="md:hidden px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
-            style={{
-              backgroundColor: 'var(--bg-elevated)',
-              borderColor: 'var(--border-subtle)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            Export
-          </button>
+          {activeExercise && (
+            <button
+              type="button"
+              onClick={() =>
+                setExportTarget({ kind: 'exercise', exercise: activeExercise })
+              }
+              className="md:hidden px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
+              style={{
+                backgroundColor: 'var(--bg-elevated)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              Export
+            </button>
+          )}
 
           {/* Quick Text Size */}
           <div
@@ -686,7 +740,81 @@ export default function App() {
 
       {/* Main Dual-Panel Workspace */}
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {mode === 'edit' ? (
+        {!activeExercise ? (
+          <div className="flex-1 overflow-y-auto p-6 sm:p-10 flex items-center justify-center">
+            <div
+              className="w-full max-w-3xl rounded-2xl border p-6 sm:p-8 shadow-sm space-y-6"
+              style={{
+                backgroundColor: 'var(--bg-panel)',
+                borderColor: 'var(--border-subtle)',
+              }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h1
+                    className="text-2xl font-bold tracking-tight"
+                    style={{ fontFamily: 'var(--font-display)' }}
+                  >
+                    Create Your First Exercise
+                  </h1>
+                  <p
+                    className="text-sm mt-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Select an exercise format below or open the Library to import existing JSON packs.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLibraryModal({ open: true, tab: 'library' })}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-xs font-semibold cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--bg-elevated)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  <span>Open Library</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {EXERCISE_TYPES.map((meta) => (
+                  <button
+                    key={meta.type}
+                    type="button"
+                    onClick={() => handleCreateExercise(meta.type)}
+                    className="group text-left p-4 rounded-xl border transition-colors cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--bg-elevated)',
+                      borderColor: 'var(--border-subtle)',
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span
+                        className="text-sm font-semibold"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {meta.title}
+                      </span>
+                      <Plus
+                        className="w-4 h-4 opacity-70 group-hover:opacity-100 shrink-0"
+                        style={{ color: 'var(--accent-fg)' }}
+                      />
+                    </div>
+                    <p
+                      className="text-xs leading-relaxed"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      {meta.description}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : mode === 'edit' ? (
           <EditorWorkspace
             exercise={activeExercise}
             onChange={handleUpdateExercise}
@@ -730,7 +858,7 @@ export default function App() {
         exercises={exercises}
         folders={folders}
         collapsedFolderIds={collapsedFolderIds}
-        activeExerciseId={activeExercise.id}
+        activeExerciseId={activeExercise?.id || ''}
         onSelectExercise={(id) => {
           markDirty();
           setActiveId(id);
@@ -739,6 +867,8 @@ export default function App() {
         onDuplicateExercise={handleDuplicateExercise}
         onDeleteExercise={handleDeleteExercise}
         onMoveExerciseToFolder={handleMoveExerciseToFolder}
+        onBulkMoveExercises={handleBulkMoveExercises}
+        onBulkDeleteExercises={handleBulkDeleteExercises}
         onCreateFolder={handleCreateFolder}
         onRenameFolder={handleRenameFolder}
         onDeleteFolder={handleDeleteFolder}
