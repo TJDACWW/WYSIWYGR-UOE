@@ -20,10 +20,12 @@ import {
   WordFormationExercise,
 } from '../types/exercise';
 import { GapRenderInfo, RichTextRenderer } from './RichTextRenderer';
+import { DualSplitContainer } from './DualSplitContainer';
 
 interface PresenterWorkspaceProps {
   exercise: Exercise;
   splitRatio: number;
+  onSplitRatioChange: (nextRatio: number) => void;
 }
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -35,6 +37,7 @@ function normalizeAnswer(val: string): string {
 export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
   exercise,
   splitRatio,
+  onSplitRatioChange,
 }) => {
   const meta = EXERCISE_TYPES.find((m) => m.type === exercise.type)!;
 
@@ -1227,36 +1230,17 @@ export const PresenterWorkspace: React.FC<PresenterWorkspaceProps> = ({
         </div>
       </div>
 
-      {/* Dual Independent Scrollable Panels */}
-      <div
-        className="flex-1 min-h-0 dual-split-grid overflow-hidden print-reset-scroll"
-        style={
-          {
-            backgroundColor: 'var(--bg-canvas)',
-            '--split-left': `${splitRatio}%`,
-            '--split-right': `${100 - splitRatio}%`,
-          } as React.CSSProperties
-        }
-      >
-        <section
-          aria-label={meta.leftPanelLabel}
-          className="h-full min-h-0 overflow-y-auto exercise-scroll p-6 lg:p-10 print-reset-scroll"
-          style={{ backgroundColor: 'var(--bg-panel)' }}
-        >
-          <div className="max-w-3xl mx-auto">{renderLeftPanel()}</div>
-        </section>
-
-        <section
-          aria-label={meta.rightPanelLabel}
-          className="h-full min-h-0 overflow-y-auto exercise-scroll p-6 lg:p-10 border-t lg:border-t-0 lg:border-l print-reset-scroll"
-          style={{
-            backgroundColor: 'var(--bg-canvas)',
-            borderColor: 'var(--border-subtle)',
-          }}
-        >
-          <div className="max-w-2xl mx-auto">{renderRightPanel()}</div>
-        </section>
-      </div>
+      {/* Dual Independent Scrollable & Resizable Panels */}
+      <DualSplitContainer
+        leftAriaLabel={meta.leftPanelLabel}
+        rightAriaLabel={meta.rightPanelLabel}
+        splitRatio={splitRatio}
+        onSplitRatioChange={onSplitRatioChange}
+        leftPaddingClass="p-5 sm:p-6 lg:p-10"
+        rightPaddingClass="p-5 sm:p-6 lg:p-10"
+        leftPanel={<div className="max-w-3xl mx-auto">{renderLeftPanel()}</div>}
+        rightPanel={<div className="max-w-2xl mx-auto">{renderRightPanel()}</div>}
+      />
     </div>
   );
 };

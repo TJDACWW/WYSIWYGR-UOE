@@ -9,6 +9,7 @@ import {
   AccessibilitySettings,
   EXERCISE_TYPES,
   Exercise,
+  ExerciseFolder,
   ExerciseType,
   THEME_PALETTES,
 } from './types/exercise';
@@ -17,9 +18,14 @@ import { EditorWorkspace } from './components/EditorWorkspace';
 import { PresenterWorkspace } from './components/PresenterWorkspace';
 import { AccessibilityPanel } from './components/AccessibilityPanel';
 import { ExerciseLibraryModal } from './components/ExerciseLibraryModal';
-import { buildStandaloneHtml } from './utils/htmlExporter';
+import { ExportHtmlModal } from './components/ExportHtmlModal';
+import {
+  buildFolderStandaloneHtml,
+  buildStandaloneHtml,
+} from './utils/htmlExporter';
 
 const STORAGE_EXERCISES_KEY = 'lexis_studio_exercises_v1';
+const STORAGE_FOLDERS_KEY = 'lexis_studio_folders_v1';
 const STORAGE_ACTIVE_ID_KEY = 'lexis_studio_active_id_v1';
 const STORAGE_A11Y_KEY = 'lexis_studio_a11y_v1';
 
@@ -30,6 +36,10 @@ const DEFAULT_A11Y: AccessibilitySettings = {
   fontFamily: 'sans',
   splitRatio: 50,
 };
+
+type ExportTarget =
+  | { kind: 'exercise'; exercise: Exercise }
+  | { kind: 'folder'; folderName: string; exercises: Exercise[] };
 
 export default function App() {
   const [exercises, setExercises] = useState<Exercise[]>(() => {
@@ -43,6 +53,19 @@ export default function App() {
       // Fallback to seeded samples
     }
     return SAMPLE_EXERCISES;
+  });
+
+  const [folders, setFolders] = useState<ExerciseFolder[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_FOLDERS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // Ignore
+    }
+    return [];
   });
 
   const [activeId, setActiveId] = useState<string>(() => {
@@ -71,8 +94,9 @@ export default function App() {
     open: boolean;
     tab: 'library' | 'create';
   }>({ open: false, tab: 'library' });
+  const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
 
-  // Persist exercises & active selection
+  // Persist exercises, folders, active selection & accessibility settings
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_EXERCISES_KEY, JSON.stringify(exercises));
@@ -80,6 +104,14 @@ export default function App() {
       // Ignore storage quota errors
     }
   }, [exercises]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_FOLDERS_KEY, JSON.stringify(folders));
+    } catch {
+      // Ignore
+    }
+  }, [folders]);
 
   useEffect(() => {
     try {
@@ -102,7 +134,6 @@ export default function App() {
 
   const palette = THEME_PALETTES[a11y.theme] || THEME_PALETTES['paper-light'];
 
-  // Sync Tailwind dark class if dark palette is active
   useEffect(() => {
     const root = document.documentElement;
     if (palette.isDark) {
@@ -150,8 +181,11 @@ export default function App() {
     );
   };
 
-  const handleCreateExercise = (type: ExerciseType) => {
+  const handleCreateExercise = (type: ExerciseType, folderId?: string) => {
     const created = createBlankExercise(type);
+    if (folderId) {
+      created.folderId = folderId;
+    }
     setExercises((prev) => [created, ...prev]);
     setActiveId(created.id);
     setMode('edit');
@@ -181,41 +215,134 @@ export default function App() {
     });
   };
 
-  const handleImportExercises = (imported: Exercise[]) => {
-    const stamped = imported.map((ex) => ({
-      ...ex,
-      id: `ex-${Math.random().toString(36).slice(2, 9)}`,
-      updatedAt: new Date().toISOString(),
-    }));
+  const handleMoveExerciseToFolder = (exerciseId: string, folderId?: string) => {
+    setExercises((prev) =>
+      prev.map((ex) =>
+        ex.id === exerciseId ? { ...ex, folderId: folderId || undefined } : ex
+      )
+    );
+  };
+
+  const handleCreateFolder = (name: string) => {
+    const folder: ExerciseFolder = {
+      id: `fld-${Math.random().toString(36).slice(2, 9)}`,
+      name,
+      createdAt: new Date().toISOString(),
+    };
+    setFolders((prev) => [...prev, folder]);
+  };
+
+  const handleRenameFolder = (folderId: string, name: string) => {
+    setFolders((prev) =>
+      prev.map((f) => (f.id === folderId ? { ...f, name } : f))
+    );
+  };
+
+  const handleDeleteFolder = (folderId: string) => {
+    setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setExercises((prev) =>
+      prev.map((ex) =>
+        ex.folderId === folderId ? { ...ex, folderId: undefined } : ex
+      )
+    );
+  };
+
+  const handleImportData = (payload: {
+    exercises: Exercise[];
+    folders?: ExerciseFolder[];
+  }) => {
+    const folderIdRemap = new Map<string, string>();
+    const newFolders: ExerciseFolder[] = [];
+
+    if (payload.folders && payload.folders.length > 0) {
+      payload.folders.forEach((f) => {
+        const newId = `fld-${Math.random().toString(36).slice(2, 9)}`;
+        folderIdRemap.set(f.id, newId);
+        newFolders.push({ ...f, id: newId });
+      });
+    }
+
+    const stamped = payload.exercises.map((ex) => {
+      let targetFolderId: string | undefined = undefined;
+      if (ex.folderId && folderIdRemap.has(ex.folderId)) {
+        targetFolderId = folderIdRemap.get(ex.folderId);
+      } else if (newFolders.length === 1 && payload.folders?.length === 1) {
+        targetFolderId = newFolders[0].id;
+      }
+      return {
+        ...ex,
+        id: `ex-${Math.random().toString(36).slice(2, 9)}`,
+        folderId: targetFolderId,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    if (newFolders.length > 0) {
+      setFolders((prev) => [...prev, ...newFolders]);
+    }
     setExercises((prev) => [...stamped, ...prev]);
     if (stamped[0]) setActiveId(stamped[0].id);
   };
 
-  const handleExportJson = () => {
-    const blob = new Blob([JSON.stringify(exercises, null, 2)], {
-      type: 'application/json',
-    });
+  const triggerDownload = (filename: string, content: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'lexis-studio-exercises.json';
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const handleExportHtml = () => {
-    const htmlContent = buildStandaloneHtml(activeExercise, a11y);
-    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const slug = (activeExercise.title || 'exercise')
+  const slugify = (text: string) =>
+    text
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${slug || 'exercise'}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
+
+  const handleExportAllJson = () => {
+    triggerDownload(
+      'lexis-studio-library.json',
+      JSON.stringify({ folders, exercises }, null, 2),
+      'application/json'
+    );
+  };
+
+  const handleExportFolderJson = (
+    folderName: string,
+    folderExercises: Exercise[]
+  ) => {
+    triggerDownload(
+      `${slugify(folderName) || 'folder'}-exercises.json`,
+      JSON.stringify({ folderName, exercises: folderExercises }, null, 2),
+      'application/json'
+    );
+  };
+
+  const handleConfirmProtectedHtmlExport = (password: string) => {
+    if (!exportTarget) return;
+    if (exportTarget.kind === 'exercise') {
+      const html = buildStandaloneHtml(exportTarget.exercise, a11y, password);
+      const slug = slugify(exportTarget.exercise.title || 'exercise');
+      triggerDownload(
+        `${slug || 'exercise'}.html`,
+        html,
+        'text/html;charset=utf-8'
+      );
+    } else {
+      const html = buildFolderStandaloneHtml(
+        exportTarget.folderName,
+        exportTarget.exercises,
+        a11y,
+        password
+      );
+      const slug = slugify(exportTarget.folderName || 'folder');
+      triggerDownload(
+        `${slug || 'folder'}-pack.html`,
+        html,
+        'text/html;charset=utf-8'
+      );
+    }
   };
 
   const activeMeta = EXERCISE_TYPES.find((m) => m.type === activeExercise.type)!;
@@ -237,7 +364,6 @@ export default function App() {
           borderColor: 'var(--border-subtle)',
         }}
       >
-        {/* Zone 1: Single text element wordmark */}
         <span
           className="text-xl font-bold tracking-tight whitespace-nowrap shrink-0"
           style={{
@@ -248,7 +374,6 @@ export default function App() {
           Lexis Studio
         </span>
 
-        {/* Zone 2: Concise single-line text nav links */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
           <button
             type="button"
@@ -276,7 +401,9 @@ export default function App() {
           </button>
           <button
             type="button"
-            onClick={handleExportHtml}
+            onClick={() =>
+              setExportTarget({ kind: 'exercise', exercise: activeExercise })
+            }
             className="hover:underline underline-offset-4 cursor-pointer whitespace-nowrap shrink-0"
             style={{ color: 'var(--text-secondary)' }}
           >
@@ -284,7 +411,6 @@ export default function App() {
           </button>
         </nav>
 
-        {/* Zone 3: Single primary action */}
         <div className="shrink-0">
           <button
             type="button"
@@ -312,13 +438,13 @@ export default function App() {
 
       {/* Secondary Workspace Toolbar: Exercise Switcher & Quick Accessibility Strip */}
       <div
-        className="no-print flex flex-wrap items-center justify-between gap-4 px-6 py-2.5 border-b shrink-0"
+        className="no-print flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-2.5 border-b shrink-0"
         style={{
           backgroundColor: 'var(--bg-panel)',
           borderColor: 'var(--border-subtle)',
         }}
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           <label
             htmlFor="quick-exercise-select"
             className="text-xs font-medium whitespace-nowrap shrink-0"
@@ -330,7 +456,7 @@ export default function App() {
             id="quick-exercise-select"
             value={activeExercise.id}
             onChange={(e) => setActiveId(e.target.value)}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg border max-w-[20rem] sm:max-w-[26rem] truncate cursor-pointer"
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg border max-w-[17rem] sm:max-w-[28rem] truncate cursor-pointer"
             style={{
               backgroundColor: 'var(--bg-elevated)',
               borderColor: 'var(--border-subtle)',
@@ -341,7 +467,7 @@ export default function App() {
               const m = EXERCISE_TYPES.find((t) => t.type === ex.type);
               return (
                 <option key={ex.id} value={ex.id}>
-                  {m?.partLabel} ({m?.shortTitle}) — {ex.title || 'Untitled'}
+                  {m?.title} — {ex.title || 'Untitled'}
                 </option>
               );
             })}
@@ -356,11 +482,10 @@ export default function App() {
         </div>
 
         {/* Quick Accessibility & Mobile Actions */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          {/* Mobile quick links */}
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => setLibraryModal({ open: true, tab: 'create' })}
+            onClick={() => setLibraryModal({ open: true, tab: 'library' })}
             className="md:hidden px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
             style={{
               backgroundColor: 'var(--bg-elevated)',
@@ -368,7 +493,22 @@ export default function App() {
               color: 'var(--text-primary)',
             }}
           >
-            + New
+            Library
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setExportTarget({ kind: 'exercise', exercise: activeExercise })
+            }
+            className="md:hidden px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
+            style={{
+              backgroundColor: 'var(--bg-elevated)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            Export
           </button>
 
           {/* Quick Text Size */}
@@ -412,7 +552,11 @@ export default function App() {
           </div>
 
           {/* Quick Theme Swatches */}
-          <div className="hidden sm:flex items-center gap-1.5" role="group" aria-label="Quick colour themes">
+          <div
+            className="hidden sm:flex items-center gap-1.5"
+            role="group"
+            aria-label="Quick colour themes"
+          >
             {Object.values(THEME_PALETTES).map((t) => {
               const active = a11y.theme === t.id;
               return (
@@ -459,11 +603,17 @@ export default function App() {
             exercise={activeExercise}
             onChange={handleUpdateExercise}
             splitRatio={a11y.splitRatio}
+            onSplitRatioChange={(ratio) =>
+              setA11y((s) => ({ ...s, splitRatio: ratio }))
+            }
           />
         ) : (
           <PresenterWorkspace
             exercise={activeExercise}
             splitRatio={a11y.splitRatio}
+            onSplitRatioChange={(ratio) =>
+              setA11y((s) => ({ ...s, splitRatio: ratio }))
+            }
           />
         )}
       </main>
@@ -482,13 +632,47 @@ export default function App() {
         initialTab={libraryModal.tab}
         onClose={() => setLibraryModal((s) => ({ ...s, open: false }))}
         exercises={exercises}
+        folders={folders}
         activeExerciseId={activeExercise.id}
         onSelectExercise={(id) => setActiveId(id)}
         onCreateExercise={handleCreateExercise}
         onDuplicateExercise={handleDuplicateExercise}
         onDeleteExercise={handleDeleteExercise}
-        onImportExercises={handleImportExercises}
-        onExportJson={handleExportJson}
+        onMoveExerciseToFolder={handleMoveExerciseToFolder}
+        onCreateFolder={handleCreateFolder}
+        onRenameFolder={handleRenameFolder}
+        onDeleteFolder={handleDeleteFolder}
+        onExportExerciseHtml={(ex) =>
+          setExportTarget({ kind: 'exercise', exercise: ex })
+        }
+        onExportFolderHtml={(folderName, folderExercises) =>
+          setExportTarget({
+            kind: 'folder',
+            folderName,
+            exercises: folderExercises,
+          })
+        }
+        onExportFolderJson={handleExportFolderJson}
+        onImportData={handleImportData}
+        onExportAllJson={handleExportAllJson}
+      />
+
+      <ExportHtmlModal
+        open={exportTarget !== null}
+        targetLabel={
+          exportTarget?.kind === 'folder'
+            ? `Folder: ${exportTarget.folderName} (${exportTarget.exercises.length} exercises)`
+            : exportTarget?.kind === 'exercise'
+              ? exportTarget.exercise.title || 'Untitled Exercise'
+              : ''
+        }
+        targetDescription={
+          exportTarget?.kind === 'folder'
+            ? 'Exports all exercises in this folder into one interactive HTML file with an exercise switcher and password-protected answer keys.'
+            : 'Exports this exercise as a standalone interactive HTML file with resizable side-by-side panels and a password-protected answer key.'
+        }
+        onClose={() => setExportTarget(null)}
+        onConfirmExport={handleConfirmProtectedHtmlExport}
       />
     </div>
   );

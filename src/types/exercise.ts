@@ -21,16 +21,16 @@ export interface ExerciseTypeMeta {
 export const EXERCISE_TYPES: ExerciseTypeMeta[] = [
   {
     type: 'multiple-choice-cloze',
-    partLabel: 'Type 1',
+    partLabel: 'Part 1',
     title: 'Multiple Choice Cloze',
-    shortTitle: 'MC Cloze',
+    shortTitle: 'Multiple Choice Cloze',
     description: 'Text with numbered gaps and a configurable set of options for each gap.',
     leftPanelLabel: 'Reading Text',
     rightPanelLabel: 'Gap Options & Key',
   },
   {
     type: 'open-cloze',
-    partLabel: 'Type 2',
+    partLabel: 'Part 2',
     title: 'Open Cloze',
     shortTitle: 'Open Cloze',
     description: 'Text with simple open gaps where learners supply the missing word.',
@@ -39,7 +39,7 @@ export const EXERCISE_TYPES: ExerciseTypeMeta[] = [
   },
   {
     type: 'word-formation',
-    partLabel: 'Type 3',
+    partLabel: 'Part 3',
     title: 'Word Formation',
     shortTitle: 'Word Formation',
     description: 'Text with gaps, each paired with an ALL CAPS BOLD root word next to the gap.',
@@ -48,16 +48,16 @@ export const EXERCISE_TYPES: ExerciseTypeMeta[] = [
   },
   {
     type: 'key-word-transformation',
-    partLabel: 'Type 4',
+    partLabel: 'Part 4',
     title: 'Key Word Transformation',
-    shortTitle: 'Transformation',
+    shortTitle: 'Key Word Transformation',
     description: 'Three-line prompts: lead sentence, ALL CAPS BOLD key word, and gapped second sentence.',
     leftPanelLabel: 'Prompt Sentences',
     rightPanelLabel: 'Answer Slots & Key',
   },
   {
     type: 'multiple-choice',
-    partLabel: 'Type 5',
+    partLabel: 'Part 5',
     title: 'Multiple Choice',
     shortTitle: 'Multiple Choice',
     description: 'Long reading passage paired with comprehension questions and answer options.',
@@ -66,7 +66,7 @@ export const EXERCISE_TYPES: ExerciseTypeMeta[] = [
   },
   {
     type: 'gapped-text',
-    partLabel: 'Type 6',
+    partLabel: 'Part 6',
     title: 'Gapped Text',
     shortTitle: 'Gapped Text',
     description: 'Passage with removed sentences/paragraphs and extra distractor options.',
@@ -75,7 +75,7 @@ export const EXERCISE_TYPES: ExerciseTypeMeta[] = [
   },
   {
     type: 'multiple-matching',
-    partLabel: 'Type 7',
+    partLabel: 'Part 7',
     title: 'Multiple Matching',
     shortTitle: 'Multiple Matching',
     description: 'A set of lettered texts paired with 10 questions matched to text letters.',
@@ -84,14 +84,20 @@ export const EXERCISE_TYPES: ExerciseTypeMeta[] = [
   },
   {
     type: 'cross-text-matching',
-    partLabel: 'Type 8',
+    partLabel: 'Part 8',
     title: 'Cross-Text Multiple Matching',
-    shortTitle: 'Cross-Text Match',
+    shortTitle: 'Cross-Text Multiple Matching',
     description: 'Four texts (A–D) paired with 4 comparative questions matched to text letters.',
     leftPanelLabel: 'Four Texts (A–D)',
     rightPanelLabel: 'Cross-Text Questions',
   },
 ];
+
+export interface ExerciseFolder {
+  id: string;
+  name: string;
+  createdAt: string;
+}
 
 export interface BaseExercise {
   id: string;
@@ -99,6 +105,7 @@ export interface BaseExercise {
   title: string;
   subtitle: string;
   instructions: string;
+  folderId?: string;
   updatedAt: string;
 }
 

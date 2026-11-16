@@ -104,17 +104,15 @@
   cursor: pointer;
 }
 
-/* Responsive Dual Side-by-Side Independent Panels */
-.dual-split-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+/* Responsive Dual Side-by-Side Independent Panels (always side-by-side when wider than tall) */
+.dual-split-container {
+  display: flex;
+  flex-direction: column;
 }
 
-@media (min-width: 1024px) {
-  .dual-split-grid {
-    grid-template-columns: var(--split-left, 50%) var(--split-right, 50%);
-    grid-template-rows: minmax(0, 1fr);
+@media (orientation: landscape), (min-aspect-ratio: 1/1) {
+  .dual-split-container {
+    flex-direction: row;
   }
 }
 

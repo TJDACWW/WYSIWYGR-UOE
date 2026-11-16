@@ -39,7 +39,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   ariaLabel = 'Rich text passage editor',
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
-  const lastEmittedRef = useRef<string>(value);
+  const lastEmittedRef = useRef<string | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
 
   const [stemPopoverOpen, setStemPopoverOpen] = useState(false);
@@ -48,9 +48,13 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   useEffect(() => {
     const el = editorRef.current;
     if (!el) return;
-    if (value !== lastEmittedRef.current && el.innerHTML !== value) {
-      el.innerHTML = value || '';
-      lastEmittedRef.current = value;
+    const normalized = value || '';
+    if (
+      lastEmittedRef.current === null ||
+      (normalized !== lastEmittedRef.current && el.innerHTML !== normalized)
+    ) {
+      el.innerHTML = normalized;
+      lastEmittedRef.current = normalized;
     }
   }, [value]);
 

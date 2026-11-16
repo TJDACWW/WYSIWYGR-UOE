@@ -23,11 +23,13 @@ import {
   syncStemsInHtml,
 } from '../utils/htmlSanitizer';
 import { RichTextEditor } from './RichTextEditor';
+import { DualSplitContainer } from './DualSplitContainer';
 
 interface EditorWorkspaceProps {
   exercise: Exercise;
   onChange: (updated: Exercise) => void;
   splitRatio: number;
+  onSplitRatioChange: (nextRatio: number) => void;
 }
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -40,6 +42,7 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
   exercise,
   onChange,
   splitRatio,
+  onSplitRatioChange,
 }) => {
   const meta = EXERCISE_TYPES.find((m) => m.type === exercise.type)!;
 
@@ -230,6 +233,7 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
             </span>
           </div>
           <RichTextEditor
+            key={`${exercise.id}-passage-gaps`}
             value={exercise.passageHtml}
             enableGaps={true}
             gapMode={gapMode}
@@ -271,6 +275,7 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
             </span>
           </div>
           <RichTextEditor
+            key={`${exercise.id}-passage`}
             value={exercise.passageHtml}
             enableGaps={false}
             minHeight="420px"
@@ -322,6 +327,7 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
               Optional Word-Limit Note / Example
             </label>
             <RichTextEditor
+              key={`${exercise.id}-intro`}
               value={kwt.introHtml}
               minHeight="90px"
               onChange={(html) => onChange({ ...kwt, introHtml: html })}
@@ -541,6 +547,7 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
               </div>
 
               <RichTextEditor
+                key={`${exercise.id}-${sec.id}`}
                 value={sec.html}
                 minHeight="160px"
                 onChange={(html) => updateTextSection(idx, { html })}
@@ -1274,6 +1281,7 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
                     )}
                   </div>
                   <RichTextEditor
+                    key={`${exercise.id}-${opt.id}`}
                     value={opt.html}
                     minHeight="90px"
                     onChange={(html) => updateOptionHtml(idx, html)}
@@ -1417,38 +1425,13 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
   };
 
   return (
-    <div
-      className="flex-1 min-h-0 dual-split-grid overflow-hidden"
-      style={
-        {
-          backgroundColor: 'var(--bg-canvas)',
-          '--split-left': `${splitRatio}%`,
-          '--split-right': `${100 - splitRatio}%`,
-        } as React.CSSProperties
-      }
-    >
-      {/* Left Independent Scroll Panel */}
-      <section
-        aria-label={meta.leftPanelLabel}
-        className="h-full min-h-0 overflow-y-auto exercise-scroll p-6 lg:p-8"
-        style={{
-          backgroundColor: 'var(--bg-panel)',
-        }}
-      >
-        <div className="max-w-3xl mx-auto">{renderLeftPanel()}</div>
-      </section>
-
-      {/* Right Independent Scroll Panel */}
-      <section
-        aria-label={meta.rightPanelLabel}
-        className="h-full min-h-0 overflow-y-auto exercise-scroll p-6 lg:p-8 border-t lg:border-t-0 lg:border-l"
-        style={{
-          backgroundColor: 'var(--bg-canvas)',
-          borderColor: 'var(--border-subtle)',
-        }}
-      >
-        <div className="max-w-3xl mx-auto">{renderRightPanel()}</div>
-      </section>
-    </div>
+    <DualSplitContainer
+      leftAriaLabel={meta.leftPanelLabel}
+      rightAriaLabel={meta.rightPanelLabel}
+      splitRatio={splitRatio}
+      onSplitRatioChange={onSplitRatioChange}
+      leftPanel={<div className="max-w-3xl mx-auto">{renderLeftPanel()}</div>}
+      rightPanel={<div className="max-w-3xl mx-auto">{renderRightPanel()}</div>}
+    />
   );
 };
