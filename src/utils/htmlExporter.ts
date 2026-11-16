@@ -4,11 +4,12 @@ import {
   Exercise,
 } from '../types/exercise';
 import { escapeHtml } from './htmlSanitizer';
+import { stripExerciseAnswers } from './stripAnswers';
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 // Pure-JS SHA-256 (works offline & on file:// origins without crypto.subtle restrictions)
-function sha256Bytes(bytes: Uint8Array): Uint8Array {
+export function sha256Bytes(bytes: Uint8Array): Uint8Array {
   const K = new Uint32Array([
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -317,6 +318,10 @@ function renderHtmlDocument(
     buildExerciseMarkup(ex, idx, answersMap)
   );
   const encrypted = encryptAnswerPayload(answersMap, password);
+  const safeExportJson = JSON.stringify({
+    folderName: folderLabel || undefined,
+    exercises: exercises.map(stripExerciseAnswers),
+  }).replace(/<\//g, '<\\/');
 
   const initialThemeClass =
     a11y.theme === 'warm-cream'
@@ -458,6 +463,7 @@ function renderHtmlDocument(
     </form>
   </div>
 
+  <script type="application/json" id="wysiwygr-export-data">${safeExportJson}</script>
   <script>
     var curSize = ${a11y.fontSize};
     var keysUnlocked = false;

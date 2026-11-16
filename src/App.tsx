@@ -801,7 +801,7 @@ function TeacherWorkspaceApp() {
                     className="text-sm mt-1"
                     style={{ color: 'var(--text-secondary)' }}
                   >
-                    Select an exercise format below or open the Library to import existing JSON packs.
+                    Select an exercise format below or open the Library to import exported HTML or JSON packs.
                   </p>
                 </div>
                 <button

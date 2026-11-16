@@ -16,6 +16,7 @@ import {
   Search,
   FolderInput,
   QrCode,
+  Lock,
 } from 'lucide-react';
 import {
   EXERCISE_TYPES,
@@ -23,6 +24,13 @@ import {
   ExerciseFolder,
   ExerciseType,
 } from '../types/exercise';
+import {
+  ParsedHtmlImport,
+  applyAnswersToExercises,
+  decryptExportedAnswers,
+  normalizeStrippedDefaults,
+  parseExportedHtml,
+} from '../utils/htmlImporter';
 
 interface ExerciseLibraryModalProps {
   open: boolean;
@@ -91,6 +99,9 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
   const [bulkTargetFolderId, setBulkTargetFolderId] = useState<string>('');
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [confirmDeleteFolderId, setConfirmDeleteFolderId] = useState<string | null>(null);
+  const [pendingHtmlImport, setPendingHtmlImport] = useState<ParsedHtmlImport | null>(null);
+  const [htmlPassword, setHtmlPassword] = useState('');
+  const [htmlPasswordError, setHtmlPasswordError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -101,6 +112,9 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
       setEditingFolderId(null);
       setConfirmBulkDelete(false);
       setConfirmDeleteFolderId(null);
+      setPendingHtmlImport(null);
+      setHtmlPassword('');
+      setHtmlPasswordError(null);
     }
   }, [open, initialTab]);
 
@@ -188,11 +202,87 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
     setNewFolderName('');
   };
 
+  const finalizeHtmlImport = (
+    parsedHtml: ParsedHtmlImport,
+    importedExercises: Exercise[]
+  ) => {
+    const importedFolders: ExerciseFolder[] = parsedHtml.folderName
+      ? [
+          {
+            id: `fld-${Math.random().toString(36).slice(2, 9)}`,
+            name: parsedHtml.folderName,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      : [];
+    onImportData({
+      exercises: importedExercises,
+      folders: importedFolders,
+    });
+    setPendingHtmlImport(null);
+    setHtmlPassword('');
+    setHtmlPasswordError(null);
+    setImportError(null);
+    setTab('library');
+  };
+
+  const handleUnlockHtmlImport = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingHtmlImport || !pendingHtmlImport.salt || !pendingHtmlImport.cipherB64) {
+      return;
+    }
+    const answersMap = decryptExportedAnswers(
+      pendingHtmlImport.salt,
+      pendingHtmlImport.cipherB64,
+      htmlPassword
+    );
+    if (!answersMap) {
+      setHtmlPasswordError(
+        'Incorrect password. Please try again or import without the answer key.'
+      );
+      return;
+    }
+    const restored = applyAnswersToExercises(
+      normalizeStrippedDefaults(pendingHtmlImport.exercises),
+      answersMap
+    );
+    finalizeHtmlImport(pendingHtmlImport, restored);
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       const text = await file.text();
+      const lowerName = file.name.toLowerCase();
+      const looksLikeHtml =
+        lowerName.endsWith('.html') ||
+        lowerName.endsWith('.htm') ||
+        text.trimStart().startsWith('<');
+
+      if (looksLikeHtml) {
+        const parsedHtml = parseExportedHtml(text);
+        if (!parsedHtml || parsedHtml.exercises.length === 0) {
+          setImportError(
+            'No exported exercises were found in this HTML file.'
+          );
+          return;
+        }
+        setImportError(null);
+        if (parsedHtml.salt && parsedHtml.cipherB64) {
+          setPendingHtmlImport(parsedHtml);
+          setHtmlPassword('');
+          setHtmlPasswordError(null);
+          setTab('library');
+          return;
+        }
+        finalizeHtmlImport(
+          parsedHtml,
+          normalizeStrippedDefaults(parsedHtml.exercises)
+        );
+        return;
+      }
+
       const parsed = JSON.parse(text);
 
       if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.exercises)) {
@@ -234,7 +324,9 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
       setImportError(null);
       setTab('library');
     } catch {
-      setImportError('Could not read JSON file. Please verify the format.');
+      setImportError(
+        'Could not read file. Please verify it is a valid JSON or exported HTML exercise file.'
+      );
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -659,7 +751,7 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="application/json"
+                    accept=".json,.html,.htm,application/json,text/html"
                     onChange={handleFileChange}
                     className="hidden"
                   />
@@ -672,9 +764,10 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
                       borderColor: 'var(--border-subtle)',
                       color: 'var(--text-primary)',
                     }}
+                    title="Import exercises from JSON or exported HTML"
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    Import JSON
+                    Import HTML / JSON
                   </button>
                   <button
                     type="button"
@@ -811,6 +904,112 @@ export const ExerciseLibraryModal: React.FC<ExerciseLibraryModalProps> = ({
                     )}
                   </div>
                 </div>
+              )}
+
+              {pendingHtmlImport && (
+                <form
+                  onSubmit={handleUnlockHtmlImport}
+                  className="p-4 rounded-xl border space-y-3"
+                  style={{
+                    backgroundColor: 'var(--bg-elevated)',
+                    borderColor: 'var(--accent-border)',
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <Lock
+                        className="w-4 h-4 mt-0.5 shrink-0"
+                        style={{ color: 'var(--accent-fg)' }}
+                      />
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-semibold">
+                          Import HTML:{' '}
+                          {pendingHtmlImport.exercises.length === 1
+                            ? pendingHtmlImport.exercises[0].title || 'Untitled Exercise'
+                            : `${pendingHtmlImport.exercises.length} exercises`}
+                          {pendingHtmlImport.folderName
+                            ? ` (Folder: ${pendingHtmlImport.folderName})`
+                            : ''}
+                        </div>
+                        <p
+                          className="text-xs"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          This HTML file has a password-protected answer key. Enter the password to import with answers, or import without the answer key.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingHtmlImport(null);
+                        setHtmlPassword('');
+                        setHtmlPasswordError(null);
+                      }}
+                      className="p-1 rounded cursor-pointer hover:opacity-75"
+                      style={{ color: 'var(--text-muted)' }}
+                      aria-label="Cancel HTML import"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="password"
+                      autoFocus
+                      value={htmlPassword}
+                      onChange={(e) => {
+                        setHtmlPassword(e.target.value);
+                        setHtmlPasswordError(null);
+                      }}
+                      placeholder="Answer key password..."
+                      aria-label="Answer key password"
+                      className="px-3 py-1.5 text-xs rounded-lg border outline-none flex-1 min-w-[12rem]"
+                      style={{
+                        backgroundColor: 'var(--bg-panel)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer whitespace-nowrap"
+                      style={{
+                        backgroundColor: 'var(--accent-bg)',
+                        color: 'var(--accent-text)',
+                      }}
+                    >
+                      Unlock &amp; Import with Answers
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        finalizeHtmlImport(
+                          pendingHtmlImport,
+                          normalizeStrippedDefaults(pendingHtmlImport.exercises)
+                        )
+                      }
+                      className="px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
+                      style={{
+                        backgroundColor: 'var(--bg-panel)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      Import Without Answer Key
+                    </button>
+                  </div>
+
+                  {htmlPasswordError && (
+                    <div
+                      className="text-xs font-medium"
+                      style={{ color: 'var(--error-fg)' }}
+                    >
+                      {htmlPasswordError}
+                    </div>
+                  )}
+                </form>
               )}
 
               {importError && (
